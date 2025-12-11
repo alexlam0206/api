@@ -15,6 +15,11 @@ export default {
       return await handleDashboard(request, env);
     }
     
+    // User quota endpoint - requires authentication
+    if (request.method === 'GET' && url.pathname === '/api/user/quota') {
+      return await handleUserQuota(request, env);
+    }
+    
     // User data endpoint - requires authentication
     if (request.method === 'GET' && url.pathname.startsWith('/api/user/')) {
       return await handleUserData(request, env);
@@ -40,6 +45,49 @@ export default {
     
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function handleUserQuota(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const token = authHeader.substring(7);
+    const userId = await extractUserIdFromToken(token, env);
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // Get user quota from KV
+    const quotaKey = `quota:${userId}`;
+    const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
+    const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
+    
+    return new Response(JSON.stringify({
+      usage: quota.count,
+      month: quota.month,
+      limit: 50
+    }), {
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  } catch (error) {
+    console.error('User quota error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
