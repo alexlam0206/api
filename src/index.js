@@ -2,14 +2,19 @@ import { SignJWT, jwtVerify } from 'jose';
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    
+    // Favicon endpoint
+    if (url.pathname === '/favicon.ico') {
+      return await handleFavicon();
+    }
+    
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    const url = new URL(request.url);
     
     // Token exchange endpoint
     if (url.pathname === '/api/exchange-token') {
@@ -198,4 +203,18 @@ async function extractUserIdFromToken(token, env) {
 function getCurrentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function handleFavicon() {
+  // Simple WordGarden favicon - green leaf emoji
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <text x="50%" y="50%" font-size="80" text-anchor="middle" dominant-baseline="middle">🌱</text>
+  </svg>`;
+  
+  return new Response(svg, {
+    headers: {
+      'Content-Type': 'image/svg+xml',
+      'Cache-Control': 'public, max-age=604800' // 1 week = 604800 seconds
+    }
+  });
 }
