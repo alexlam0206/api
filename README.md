@@ -1,5 +1,20 @@
 # WordGarden Cloudflare Worker
 
+## Table of Contents
+
+- [Features](#features)
+- [API Endpoints](#api-endpoints)
+- [Quick Setup](#quick-setup)
+- [Frontend Integration](#frontend-integration)
+- [Quota System](#quota-system)
+- [Testing](#testing)
+- [Monitoring](#monitoring)
+- [Security](#security)
+- [Repository](#repository)
+- [Useful Commands](#useful-commands)
+- [Troubleshooting](#troubleshooting)
+- [API Documentation](./API_DOCS.md)
+
 A Cloudflare Worker backend for WordGarden that provides AI text generation with user quota management.
 
 ## Features
