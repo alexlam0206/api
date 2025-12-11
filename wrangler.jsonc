@@ -27,8 +27,7 @@
 
   // Environment variables (use wrangler secret put to set actual values)
   "vars": {
-    "JWT_SECRET": "your-jwt-secret-at-least-32-characters-long",
-    "FIREBASE_API_KEY": "your-firebase-web-api-key"
+    "JWT_SECRET": "your-jwt-secret-at-least-32-characters-long"
   },
 
   // Production environment
@@ -42,8 +41,7 @@
         }
       ],
       "vars": {
-        "JWT_SECRET": "your-production-jwt-secret",
-        "FIREBASE_API_KEY": "your-production-firebase-api-key"
+        "JWT_SECRET": "your-production-jwt-secret"
       }
     }
   }
