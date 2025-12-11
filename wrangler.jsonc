@@ -7,6 +7,10 @@
     "enabled": true
   },
 
+  "site": {
+    "bucket": "./public"
+  },
+
   // KV Namespaces for WordGarden quota storage
   "kv_namespaces": [
     {
