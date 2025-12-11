@@ -1,9 +1,26 @@
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, importX509 } from 'jose';
+import { Ai } from '@cloudflare/ai';
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
+    // Allow GET requests for Firebase config
+    if (request.method === 'GET' && url.pathname === '/api/firebase-config') {
+      return await handleFirebaseConfig(request, env);
+    }
+    
+    // Secure dashboard endpoint - requires authentication
+    if (request.method === 'GET' && url.pathname === '/api/dashboard') {
+      return await handleDashboard(request, env);
+    }
+    
+    // User data endpoint - requires authentication
+    if (request.method === 'GET' && url.pathname.startsWith('/api/user/')) {
+      return await handleUserData(request, env);
+    }
+    
+    // Require POST for other endpoints
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
@@ -20,7 +37,7 @@ export default {
     if (url.pathname === '/v1/generate') {
       return await handleGenerate(request, env);
     }
-
+    
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' }
@@ -39,7 +56,7 @@ async function handleTokenExchange(request, env) {
     }
 
     const firebaseToken = authHeader.substring(7);
-    const { firebaseUid, email } = await request.json();
+    const { firebaseUid, email, name } = await request.json();
 
     // Verify Firebase token
     const isValid = await verifyFirebaseToken(firebaseToken, firebaseUid, env);
@@ -51,6 +68,16 @@ async function handleTokenExchange(request, env) {
       });
     }
 
+    // Store user data in KV (this will be used for admin dashboard)
+    const userKey = `user:${firebaseUid}`;
+    const userData = {
+      firebaseUid,
+      email,
+      name: name || email.split('@')[0],
+      lastActive: new Date().toISOString()
+    };
+    await env.WORDGARDEN_KV.put(userKey, JSON.stringify(userData));
+
     // Generate Cloudflare-compatible JWT token
     const cloudflareToken = await generateCloudflareToken(firebaseUid, email, env);
     
@@ -58,8 +85,7 @@ async function handleTokenExchange(request, env) {
       cloudflareToken,
       expiresIn: 3600 // 1 hour
     }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      status: 200,      headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
@@ -144,26 +170,54 @@ async function handleGenerate(request, env) {
   }
 }
 
+async function handleFirebaseConfig(request, env) {
+  // Return Firebase configuration for the dashboard
+  const config = {
+    apiKey: env.FIREBASE_API_KEY,
+    authDomain: `${env.FIREBASE_PROJECT_ID}.firebaseapp.com`,
+    projectId: env.FIREBASE_PROJECT_ID,
+    storageBucket: `${env.FIREBASE_PROJECT_ID}.appspot.com`,
+    messagingSenderId: env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: env.FIREBASE_APP_ID
+  };
+  
+  return new Response(JSON.stringify(config), {
+    headers: { 
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*' // Allow dashboard to access this
+    }
+  });
+}
+
 async function verifyFirebaseToken(token, expectedUid, env) {
   try {
-    // Firebase token verification endpoint
-    const response = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: token })
-      }
-    );
+    const jwksUrl = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+    const response = await fetch(jwksUrl);
+    if (!response.ok) {
+      console.error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`);
+      return false;
+    }
+    const certs = await response.json();
 
-    if (!response.ok) return false;
-    
-    const data = await response.json();
-    const user = data.users?.[0];
-    
-    return user && user.localId === expectedUid;
+    const keyResolver = async (protectedHeader) => {
+      const certificate = certs[protectedHeader.kid];
+      if (!certificate) {
+        throw new Error('Firebase certificate not found for kid: ' + protectedHeader.kid);
+      }
+      return importX509(certificate, 'RS256');
+    };
+
+    const { payload } = await jwtVerify(token, keyResolver, {
+      audience: env.FIREBASE_PROJECT_ID, // Your Firebase Project ID
+      issuer: `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,
+      algorithms: ['RS256'],
+    });
+
+    // Check if the UID in the token matches the expected UID
+    return payload.sub === expectedUid;
+
   } catch (error) {
-    console.error('Firebase verification error:', error);
+    console.error('Firebase token verification error:', error);
     return false;
   }
 }
@@ -198,4 +252,144 @@ async function extractUserIdFromToken(token, env) {
 function getCurrentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Secure dashboard endpoint - requires Cloudflare JWT authentication
+async function handleDashboard(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const userId = await extractUserIdFromToken(token, env);
+    
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Only allow admin user (nok@pgmiv.com)
+    // This is a basic check - you might want to store admin users in KV
+    if (userId !== 'nok@pgmiv.com') {
+      return new Response(JSON.stringify({ error: 'Access denied' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Get all users and their usage data
+    const users = [];
+    const userKeys = await env.WORDGARDEN_KV.list({ prefix: 'user:' });
+    
+    for (const key of userKeys.keys) {
+      const userData = await env.WORDGARDEN_KV.get(key.name);
+      if (userData) {
+        const user = JSON.parse(userData);
+        const quotaKey = `quota:${user.firebaseUid}`;
+        const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
+        const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
+        
+        users.push({
+          id: user.firebaseUid,
+          email: user.email,
+          name: user.name || 'Unknown',
+          usage: quota.count,
+          month: quota.month,
+          lastActive: user.lastActive || 'Never'
+        });
+      }
+    }
+
+    return new Response(JSON.stringify({ users }), {
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// User data endpoint - requires Cloudflare JWT authentication
+async function handleUserData(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const userId = await extractUserIdFromToken(token, env);
+    
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Extract user ID from URL path
+    const url = new URL(request.url);
+    const pathUserId = url.pathname.split('/').pop();
+    
+    // Users can only access their own data, unless they're admin
+    const isAdmin = userId === 'nok@pgmiv.com'; // Admin check
+    if (!isAdmin && userId !== pathUserId) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Get user data
+    const userKey = `user:${pathUserId}`;
+    const userData = await env.WORDGARDEN_KV.get(userKey);
+    const quotaKey = `quota:${pathUserId}`;
+    const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
+    
+    if (!userData) {
+      return new Response(JSON.stringify({ error: 'User not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const user = JSON.parse(userData);
+    const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
+
+    return new Response(JSON.stringify({
+      id: user.firebaseUid,
+      email: user.email,
+      name: user.name || 'Unknown',
+      usage: quota.count,
+      month: quota.month,
+      lastActive: user.lastActive || 'Never'
+    }), {
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  } catch (error) {
+    console.error('User data error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }

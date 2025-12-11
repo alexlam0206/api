@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Generation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-6 text-center">AI Content Generator</h1>
+
+        <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+            <div class="mb-4">
+                <label for="userPrompt" class="block text-gray-700 text-sm font-bold mb-2">User Prompt:</label>
+                <textarea id="userPrompt" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-24" placeholder="Enter your prompt here..."></textarea>
+            </div>
+            <div class="mb-4">
+                <label for="systemPrompt" class="block text-gray-700 text-sm font-bold mb-2">System Prompt (Optional):</label>
+                <textarea id="systemPrompt" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-20" placeholder="e.g., You are a helpful assistant."></textarea>
+            </div>
+            <div class="mb-6">
+                <label for="maxTokens" class="block text-gray-700 text-sm font-bold mb-2">Max Tokens:</label>
+                <input type="number" id="maxTokens" value="512" min="1" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            </div>
+            <div class="flex items-center justify-between">
+                <button id="generateButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Generate Content
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-gray-100 shadow-md rounded-lg p-6">
+            <h2 class="text-2xl font-bold mb-4">AI Response:</h2>
+            <div id="aiResponse" class="bg-gray-50 p-4 rounded border border-gray-200 min-h-[150px] whitespace-pre-wrap">
+                <!-- AI generated content will appear here -->
+            </div>
+        </div>
+    </div>
+</body>
+</html>
