@@ -1,0 +1,30 @@
+name = "wordgarden-worker"
+main = "src/index.js"
+compatibility_date = "2024-12-11"
+
+[env.production]
+name = "wordgarden-worker-prod"
+
+[[kv_namespaces]]
+binding = "WORDGARDEN_KV"
+id = "your-kv-namespace-id"
+preview_id = "your-preview-kv-namespace-id"
+
+[ai]
+binding = "AI"
+
+[[env.production.kv_namespaces]]
+binding = "WORDGARDEN_KV"
+id = "your-production-kv-namespace-id"
+
+[env.production.ai]
+binding = "AI"
+
+# Environment variables - SET THESE SECURELY
+[env.production.vars]
+JWT_SECRET = "your-secure-jwt-secret-at-least-32-characters-long"
+FIREBASE_API_KEY = "your-firebase-web-api-key"
+
+[env.development.vars]
+JWT_SECRET = "dev-secret-key-at-least-32-characters-long"
+FIREBASE_API_KEY = "your-dev-firebase-api-key"

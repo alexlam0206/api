@@ -1,0 +1,22 @@
+{
+  "name": "wordgarden-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for WordGarden AI with Firebase integration",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "kv:create": "wrangler kv:namespace create WORDGARDEN_KV",
+    "kv:list": "wrangler kv:key list --binding WORDGARDEN_KV"
+  },
+  "dependencies": {
+    "jose": "^5.1.3"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "keywords": ["cloudflare", "worker", "ai", "firebase", "wordgarden"],
+  "author": "Your Name",
+  "license": "MIT"
+}

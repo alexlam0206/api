@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.local
+.wrangler/
+dist/
+*.log
+.DS_Store
+wrangler.toml.bak
+package-lock.json
