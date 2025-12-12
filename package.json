@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cloudflare/ai": "^1.2.2",
+    "@cloudflare/kv-asset-handler": "^0.4.1",
     "base64-js": "^1.5.1",
     "firebase": "^12.6.0",
     "jose": "^5.1.3"

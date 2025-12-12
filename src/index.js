@@ -1,5 +1,8 @@
 import { SignJWT, jwtVerify, importX509 } from 'jose';
 import { Ai } from '@cloudflare/ai';
+import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+import manifestJSON from '__STATIC_CONTENT_MANIFEST';
+const assetManifest = JSON.parse(manifestJSON);
 
 export default {
   async fetch(request, env, ctx) {
@@ -8,6 +11,11 @@ export default {
     // Allow GET requests for Firebase config
     if (request.method === 'GET' && url.pathname === '/api/firebase-config') {
       return await handleFirebaseConfig(request, env);
+    }
+    
+    // Serve dashboard.html for dashboard route
+    if (request.method === 'GET' && url.pathname === '/dashboard') {
+      return await handleDashboardPage(request, env, ctx);
     }
     
     // Secure dashboard endpoint - requires authentication
@@ -50,6 +58,26 @@ export default {
   }
 }
 
+async function handleDashboardPage(request, env, ctx) {
+  try {
+    return await getAssetFromKV(
+      {
+        request,
+        waitUntil: ctx.waitUntil.bind(ctx),
+      },
+      {
+        ASSET_NAMESPACE: env.__STATIC_CONTENT,
+        ASSET_MANIFEST: assetManifest,
+        mapRequestToAsset: (req) => {
+          return new Request(`${new URL(req.url).origin}/dashboard.html`, req);
+        },
+      }
+    );
+  } catch (e) {
+    console.error('Dashboard page error:', e);
+    return new Response('Dashboard not available', { status: 500 });
+  }
+}
 async function handleUserQuota(request, env) {
   try {
     const authHeader = request.headers.get('Authorization');
