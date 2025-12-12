@@ -45,6 +45,9 @@ export function Login() {
             </svg>
             Sign in with Google
           </Button>
+          <div className="text-center text-sm text-gray-500 mt-2">
+            Not admin? Check the <a href="https://github.com/alexlam0206/api" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">GitHub Repo</a>.
+          </div>
         </CardContent>
       </Card>
     </div>

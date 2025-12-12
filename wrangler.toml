@@ -25,14 +25,12 @@ binding = "AI"
 
 # Environment variables
 [env.production.vars]
-JWT_SECRET = "your-production-jwt-secret"
 FIREBASE_API_KEY = "AIzaSyAPS88OETFvlq7_DtOhcF1V2VJeH_ZnFSs"
 FIREBASE_PROJECT_ID = "wordgarden"
 FIREBASE_MESSAGING_SENDER_ID = "287215877843"
 FIREBASE_APP_ID = "1:287215877843:web:9b5d68f4800baa11025e26"
 
 [env.development.vars]
-JWT_SECRET = "your-jwt-secret-at-least-32-characters-long"
 FIREBASE_API_KEY = "AIzaSyAPS88OETFvlq7_DtOhcF1V2VJeH_ZnFSs"
 FIREBASE_PROJECT_ID = "wordgarden"
 FIREBASE_MESSAGING_SENDER_ID = "287215877843"

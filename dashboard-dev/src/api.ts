@@ -1,7 +1,7 @@
 import { auth } from "./firebase";
 import { type User } from "firebase/auth";
 
-const API_BASE = "/api";
+const API_BASE = "/v1";
 
 let cloudflareToken: string | null = null;
 
@@ -66,6 +66,39 @@ export interface DashboardData {
   };
 }
 
+export async function updateUserLimit(email: string, monthly: number, daily: number) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/user-limit`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ email, monthly, daily })
+  });
+  if (!res.ok) throw new Error("Failed to update limit");
+  return res.json();
+}
+
+export async function updateGlobalLimits(monthly: number, daily: number) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/global-limits`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ monthly, daily })
+  });
+  if (!res.ok) throw new Error("Failed to update global limits");
+  return res.json();
+}
+
+export async function deleteUser(email: string) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/user-delete`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ email })
+  });
+  if (!res.ok) throw new Error("Failed to delete user");
+  return res.json();
+}
+
 export async function fetchDashboardData(): Promise<DashboardData> {
   try {
     const headers = await getAuthHeaders();
@@ -78,10 +111,10 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     // Transform to DashboardData
     const userList: UserData[] = data.users.map((u: any) => ({
       email: u.email,
-      monthlyUsage: u.usage, // Assuming usage is monthly count
-      dailyUsage: 0, // Backend doesn't provide daily usage yet
-      monthlyLimit: 50, // Hardcoded limit from backend
-      dailyLimit: 10, // Hardcoded
+      monthlyUsage: u.usage,
+      dailyUsage: u.dailyUsage || 0,
+      monthlyLimit: u.monthlyLimit || 50,
+      dailyLimit: u.dailyLimit || 10,
       lastActive: u.lastActive
     }));
 
@@ -95,12 +128,9 @@ export async function fetchDashboardData(): Promise<DashboardData> {
       users: userList.length,
       activeToday,
       totalRequests,
-      avgTokens: 0, // Not available
+      avgTokens: 0,
       userList,
-      systemLimits: {
-        monthly: 10000,
-        daily: 1000
-      }
+      systemLimits: data.systemLimits || { monthly: 50, daily: 10 }
     };
   } catch (e) {
     console.warn("API fetch failed, using mock data", e);
@@ -115,25 +145,9 @@ export async function fetchDashboardData(): Promise<DashboardData> {
         { email: 'user2@example.com', monthlyUsage: 78, dailyUsage: 8, monthlyLimit: 100, dailyLimit: 10 },
       ],
       systemLimits: {
-        monthly: 10000,
-        daily: 1000
+        monthly: 50,
+        daily: 10
       }
     };
   }
-}
-
-export async function updateUser(email: string, data: Partial<UserData>) {
-  console.log("Updating user", email, data);
-  // Implementation for real API would go here
-  // Backend needs an endpoint for this
-}
-
-export async function updateSystemLimits(data: { monthly: number; daily: number }) {
-  console.log("Updating system limits", data);
-  // Backend needs an endpoint for this
-}
-
-export async function addUser(email: string) {
-    console.log("Adding user", email);
-    // Backend needs an endpoint for this
 }

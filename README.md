@@ -58,7 +58,7 @@ Content-Type: application/json
 - `400`: Missing prompt or invalid request
 - `500`: Internal server error
 
-### POST /api/exchange-token
+### POST /v1/exchange-token
 
 Exchange Firebase token for Cloudflare token.
 
@@ -172,6 +172,7 @@ npx wrangler kv:key get "quota:USER_ID" --binding WORDGARDEN_KV
 ## Repository
 
 This repo is public and safe - all secrets are stored in Cloudflare, not in code.
+[GitHub Repository](https://github.com/alexlam0206/api)
 
 ## Useful Commands
 

@@ -34,7 +34,7 @@ Content-Type: application/json
 - `400`: Missing prompt or invalid request
 - `500`: Internal server error
 
-### POST /api/exchange-token
+### POST /v1/exchange-token
 
 Exchange Firebase token for Cloudflare token.
 

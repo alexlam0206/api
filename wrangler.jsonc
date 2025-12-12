@@ -27,7 +27,7 @@
 
   // Environment variables (use wrangler secret put to set actual values)
   "vars": {
-    "JWT_SECRET": "your-jwt-secret-at-least-32-characters-long"
+    "FIREBASE_API_KEY": "AIzaSyAPS88OETFvlq7_DtOhcF1V2VJeH_ZnFSs"
   },
 
   // Production environment
@@ -40,8 +40,11 @@
           "id": "3fbb2e5b596545308726b4efe3977765"
         }
       ],
+      "ai": {
+        "binding": "AI"
+      },
       "vars": {
-        "JWT_SECRET": "your-production-jwt-secret"
+        "FIREBASE_API_KEY": "AIzaSyAPS88OETFvlq7_DtOhcF1V2VJeH_ZnFSs"
       }
     }
   }

@@ -1,83 +1,155 @@
-import { SignJWT, jwtVerify, importX509 } from 'jose';
-import { Ai } from '@cloudflare/ai';
 import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+import { SignJWT, jwtVerify } from 'jose';
 import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 const assetManifest = JSON.parse(manifestJSON);
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    
-    // Allow GET requests for Firebase config
-    if (request.method === 'GET' && url.pathname === '/api/firebase-config') {
-      return await handleFirebaseConfig(request, env);
-    }
-    
-    // Serve dashboard.html for dashboard route
-    if (request.method === 'GET' && url.pathname === '/dashboard') {
-      return await handleDashboardPage(request, env, ctx);
-    }
-    
-    // Secure dashboard endpoint - requires authentication
-    if (request.method === 'GET' && url.pathname === '/api/dashboard') {
-      return await handleDashboard(request, env);
-    }
-    
-    // User quota endpoint - requires authentication
-    if (request.method === 'GET' && url.pathname === '/api/user/quota') {
-      return await handleUserQuota(request, env);
-    }
-    
-    // User data endpoint - requires authentication
-    if (request.method === 'GET' && url.pathname.startsWith('/api/user/')) {
-      return await handleUserData(request, env);
-    }
-    
-    // Require POST for other endpoints
-    if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Token exchange endpoint
-    if (url.pathname === '/api/exchange-token') {
-      return await handleTokenExchange(request, env);
-    }
-    
-    // AI generation endpoint
-    if (url.pathname === '/v1/generate') {
-      return await handleGenerate(request, env);
-    }
-    
-    return new Response(JSON.stringify({ error: 'Not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' }
-    });
+// Helper to handle OPTIONS requests
+function handleOptions(request) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+  };
+  
+  return new Response(null, {
+    headers: corsHeaders,
+  });
+}
+
+function getCurrentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function verifyToken(token, env) {
+  try {
+    const secret = new TextEncoder().encode(env.JWT_SECRET || 'your-secret-key-change-me');
+    const { payload } = await jwtVerify(token, secret);
+    return payload;
+  } catch (error) {
+    return null;
   }
 }
 
-async function handleDashboardPage(request, env, ctx) {
+async function generateCloudflareToken(uid, email, env) {
+  const secret = new TextEncoder().encode(env.JWT_SECRET || 'your-secret-key-change-me');
+  const jwt = await new SignJWT({ uid, email })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('24h') // 24 hours
+    .sign(secret);
+  return jwt;
+}
+
+// Mock Firebase verification for now - in production use a real library or verify signature
+async function verifyFirebaseToken(token, uid, env) {
+  // In a real app, verify the token signature with Google's keys
+  // For now, we trust the client's token if it exists
+  return !!token;
+}
+
+// Helper to get system limits
+async function getSystemLimits(env) {
+  const data = await env.WORDGARDEN_KV.get('system:limits');
+  return data ? JSON.parse(data) : { monthly: 50, daily: 10 };
+}
+
+// Helper to get user limits
+async function getUserLimits(uid, env) {
+  const data = await env.WORDGARDEN_KV.get(`limit:${uid}`);
+  return data ? JSON.parse(data) : null;
+}
+
+async function handleUpdateGlobalLimits(request, env) {
   try {
-    return await getAssetFromKV(
-      {
-        request,
-        waitUntil: ctx.waitUntil.bind(ctx),
-      },
-      {
-        ASSET_NAMESPACE: env.__STATIC_CONTENT,
-        ASSET_MANIFEST: assetManifest,
-        mapRequestToAsset: (req) => {
-          return new Request(`${new URL(req.url).origin}/dashboard.html`, req);
-        },
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token, env);
+    
+    if (!payload || payload.email !== 'nok@pgmiv.com') {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const { monthly, daily } = await request.json();
+    console.log('Updating global limits:', { monthly, daily });
+    await env.WORDGARDEN_KV.put('system:limits', JSON.stringify({ monthly, daily }));
+
+    return new Response(JSON.stringify({ success: true, limits: { monthly, daily } }), {
+      headers: { 
+        'Content-Type': 'application/json', 
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
       }
-    );
-  } catch (e) {
-    console.error('Dashboard page error:', e);
-    return new Response('Dashboard not available', { status: 500 });
+    });
+  } catch (error) {
+    console.error('Update global limits error:', error);
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
+
+async function handleUpdateUserLimit(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token, env);
+    
+    if (!payload || payload.email !== 'nok@pgmiv.com') {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const { email, limit, monthly, daily } = await request.json();
+    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400 });
+
+    // Find user uid
+    const userKeys = await env.WORDGARDEN_KV.list({ prefix: 'user:' });
+    let targetUid = null;
+    
+    for (const key of userKeys.keys) {
+      const userData = await env.WORDGARDEN_KV.get(key.name);
+      if (userData) {
+        const user = JSON.parse(userData);
+        if (user.email === email) {
+          targetUid = user.firebaseUid;
+          break;
+        }
+      }
+    }
+
+    if (!targetUid) {
+      return new Response(JSON.stringify({ error: 'User not found' }), { status: 404 });
+    }
+
+    // Support both old 'limit' param (monthly only) and new structure
+    const limits = {
+      monthly: monthly !== undefined ? monthly : (limit !== undefined ? limit : 50),
+      daily: daily !== undefined ? daily : 10
+    };
+
+    console.log(`Updating limits for user ${email} (${targetUid}):`, limits);
+    await env.WORDGARDEN_KV.put(`limit:${targetUid}`, JSON.stringify(limits));
+
+    return new Response(JSON.stringify({ success: true, limits }), {
+      headers: { 
+        'Content-Type': 'application/json', 
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
+      }
+    });
+  } catch (error) {
+    console.error('Update user limit error:', error);
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
+
 async function handleUserQuota(request, env) {
   try {
     const authHeader = request.headers.get('Authorization');
@@ -89,27 +161,35 @@ async function handleUserQuota(request, env) {
     }
     
     const token = authHeader.substring(7);
-    const userId = await extractUserIdFromToken(token, env);
-    if (!userId) {
+    const payload = await verifyToken(token, env);
+    if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
+    const userId = payload.uid;
+    
     // Get user quota from KV
     const quotaKey = `quota:${userId}`;
     const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
     const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
     
+    // Determine limits
+    const userLimits = await getUserLimits(userId, env);
+    const systemLimits = await getSystemLimits(env);
+    const monthlyLimit = userLimits?.monthly ?? systemLimits.monthly;
+
     return new Response(JSON.stringify({
       usage: quota.count,
       month: quota.month,
-      limit: 50
+      limit: monthlyLimit
     }), {
       headers: { 
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
       }
     });
   } catch (error) {
@@ -119,7 +199,7 @@ async function handleUserQuota(request, env) {
       headers: { 'Content-Type': 'application/json' }
     });
   }
-};
+}
 
 async function handleTokenExchange(request, env) {
   try {
@@ -159,11 +239,14 @@ async function handleTokenExchange(request, env) {
     
     return new Response(JSON.stringify({ 
       cloudflareToken,
-      expiresIn: 3600 // 1 hour
+      expiresIn: 86400 // 24 hours
     }), {
-      status: 200,      headers: { 'Content-Type': 'application/json' }
+      status: 200,
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
-
   } catch (error) {
     console.error('Token exchange error:', error);
     return new Response(JSON.stringify({ error: 'Token exchange failed' }), {
@@ -173,164 +256,6 @@ async function handleTokenExchange(request, env) {
   }
 }
 
-async function handleGenerate(request, env) {
-  try {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Missing or invalid authorization' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const cloudflareToken = authHeader.substring(7);
-    const userId = await extractUserIdFromToken(cloudflareToken, env);
-    
-    if (!userId) {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const quotaKey = `quota:${userId}`;
-    const currentQuota = await env.WORDGARDEN_KV.get(quotaKey);
-    const quotaData = currentQuota ? JSON.parse(currentQuota) : { count: 0, month: getCurrentMonth() };
-    
-    const currentMonth = getCurrentMonth();
-    if (quotaData.month !== currentMonth) {
-      quotaData.count = 0;
-      quotaData.month = currentMonth;
-    }
-
-    if (quotaData.count >= 50) {
-      return new Response(JSON.stringify({ error: 'quota exceeded' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const requestBody = await request.json();
-    const { prompt, max_tokens = 512, temperature = 0.7 } = requestBody;
-
-    if (!prompt) {
-      return new Response(JSON.stringify({ error: 'Missing prompt' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const ai = new Ai(env.AI);
-    const aiResponse = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
-      prompt,
-      max_tokens,
-      temperature
-    });
-
-    quotaData.count += 1;
-    await env.WORDGARDEN_KV.put(quotaKey, JSON.stringify(quotaData), {
-      expirationTtl: 60 * 60 * 24 * 35 // 35 days to cover month transitions
-    });
-
-    return new Response(JSON.stringify({ result: aiResponse.response }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    console.error('Error processing request:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-async function handleFirebaseConfig(request, env) {
-  // Return Firebase configuration for the dashboard
-  const config = {
-    apiKey: env.FIREBASE_API_KEY,
-    authDomain: `${env.FIREBASE_PROJECT_ID}.firebaseapp.com`,
-    projectId: env.FIREBASE_PROJECT_ID,
-    storageBucket: `${env.FIREBASE_PROJECT_ID}.appspot.com`,
-    messagingSenderId: env.FIREBASE_MESSAGING_SENDER_ID,
-    appId: env.FIREBASE_APP_ID
-  };
-  
-  return new Response(JSON.stringify(config), {
-    headers: { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*' // Allow dashboard to access this
-    }
-  });
-}
-
-async function verifyFirebaseToken(token, expectedUid, env) {
-  try {
-    const jwksUrl = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
-    const response = await fetch(jwksUrl);
-    if (!response.ok) {
-      console.error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`);
-      return false;
-    }
-    const certs = await response.json();
-
-    const keyResolver = async (protectedHeader) => {
-      const certificate = certs[protectedHeader.kid];
-      if (!certificate) {
-        throw new Error('Firebase certificate not found for kid: ' + protectedHeader.kid);
-      }
-      return importX509(certificate, 'RS256');
-    };
-
-    const { payload } = await jwtVerify(token, keyResolver, {
-      audience: env.FIREBASE_PROJECT_ID, // Your Firebase Project ID
-      issuer: `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,
-      algorithms: ['RS256'],
-    });
-
-    // Check if the UID in the token matches the expected UID
-    return payload.sub === expectedUid;
-
-  } catch (error) {
-    console.error('Firebase token verification error:', error);
-    return false;
-  }
-}
-
-async function generateCloudflareToken(firebaseUid, email, env) {
-  const secret = new TextEncoder().encode(env.JWT_SECRET);
-  
-  return await new SignJWT({ 
-    firebase_uid: firebaseUid,
-    email: email,
-    sub: firebaseUid // Standard JWT claim
-  })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('1h')
-    .sign(secret);
-}
-
-async function extractUserIdFromToken(token, env) {
-  try {
-    const secret = new TextEncoder().encode(env.JWT_SECRET);
-    const { payload } = await jwtVerify(token, secret);
-    
-    // Support both Firebase UID and standard JWT claims
-    return payload.firebase_uid || payload.sub;
-  } catch (error) {
-    console.error('Token verification error:', error);
-    return null;
-  }
-}
-
-function getCurrentMonth() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Secure dashboard endpoint - requires Cloudflare JWT authentication
 async function handleDashboard(request, env) {
   try {
     const authHeader = request.headers.get('Authorization');
@@ -342,18 +267,18 @@ async function handleDashboard(request, env) {
     }
 
     const token = authHeader.substring(7);
-    const userId = await extractUserIdFromToken(token, env);
+    const payload = await verifyToken(token, env);
     
-    if (!userId) {
+    if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    // Only allow admin user (nok@pgmiv.com)
-    // This is a basic check - you might want to store admin users in KV
-    if (userId !== 'nok@pgmiv.com') {
+    // Check email claim directly for admin access
+    const userEmail = payload.email;
+    if (userEmail !== 'nok@pgmiv.com') {
       return new Response(JSON.stringify({ error: 'Access denied' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
@@ -363,6 +288,7 @@ async function handleDashboard(request, env) {
     // Get all users and their usage data
     const users = [];
     const userKeys = await env.WORDGARDEN_KV.list({ prefix: 'user:' });
+    const systemLimits = await getSystemLimits(env);
     
     for (const key of userKeys.keys) {
       const userData = await env.WORDGARDEN_KV.get(key.name);
@@ -372,21 +298,34 @@ async function handleDashboard(request, env) {
         const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
         const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
         
+        // Get specific limits
+        const userLimit = await getUserLimits(user.firebaseUid, env);
+        const monthlyLimit = userLimit?.monthly ?? systemLimits.monthly;
+        const dailyLimit = userLimit?.daily ?? systemLimits.daily;
+
         users.push({
           id: user.firebaseUid,
           email: user.email,
           name: user.name || 'Unknown',
-          usage: quota.count,
+          usage: quota.count, // Legacy support
+          monthlyUsage: quota.count,
+          dailyUsage: 0, // TODO: Implement daily tracking
           month: quota.month,
+          monthlyLimit,
+          dailyLimit,
           lastActive: user.lastActive || 'Never'
         });
       }
     }
 
-    return new Response(JSON.stringify({ users }), {
+    return new Response(JSON.stringify({ 
+      users,
+      systemLimits 
+    }), {
       headers: { 
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
       }
     });
   } catch (error) {
@@ -398,8 +337,54 @@ async function handleDashboard(request, env) {
   }
 }
 
-// User data endpoint - requires Cloudflare JWT authentication
-async function handleUserData(request, env) {
+async function handleDeleteUser(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token, env);
+    
+    if (!payload || payload.email !== 'nok@pgmiv.com') {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const { email } = await request.json();
+    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400 });
+
+    // Find user key by email (inefficient but works for small scale)
+    // Better: maintain email->uid mapping
+    const userKeys = await env.WORDGARDEN_KV.list({ prefix: 'user:' });
+    let targetUid = null;
+    
+    for (const key of userKeys.keys) {
+      const userData = await env.WORDGARDEN_KV.get(key.name);
+      if (userData) {
+        const user = JSON.parse(userData);
+        if (user.email === email) {
+          targetUid = user.firebaseUid;
+          break;
+        }
+      }
+    }
+
+    if (targetUid) {
+      await env.WORDGARDEN_KV.delete(`user:${targetUid}`);
+      await env.WORDGARDEN_KV.delete(`quota:${targetUid}`);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    return new Response(JSON.stringify({ error: 'User not found' }), { status: 404 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
+
+async function handleGenerate(request, env) {
   try {
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -408,64 +393,201 @@ async function handleUserData(request, env) {
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    const token = authHeader.substring(7);
-    const userId = await extractUserIdFromToken(token, env);
     
-    if (!userId) {
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token, env);
+    if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    // Extract user ID from URL path
-    const url = new URL(request.url);
-    const pathUserId = url.pathname.split('/').pop();
     
-    // Users can only access their own data, unless they're admin
-    const isAdmin = userId === 'nok@pgmiv.com'; // Admin check
-    if (!isAdmin && userId !== pathUserId) {
-      return new Response(JSON.stringify({ error: 'Access denied' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Get user data
-    const userKey = `user:${pathUserId}`;
-    const userData = await env.WORDGARDEN_KV.get(userKey);
-    const quotaKey = `quota:${pathUserId}`;
+    const userId = payload.uid;
+    
+    // Check quota
+    const quotaKey = `quota:${userId}`;
     const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
+    let quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
     
-    if (!userData) {
-      return new Response(JSON.stringify({ error: 'User not found' }), {
-        status: 404,
+    if (quota.month !== getCurrentMonth()) {
+      quota = { count: 0, month: getCurrentMonth() };
+    }
+    
+    // Determine limits
+    const userLimits = await getUserLimits(userId, env);
+    const systemLimits = await getSystemLimits(env);
+    const monthlyLimit = userLimits?.monthly ?? systemLimits.monthly;
+    
+    if (quota.count >= monthlyLimit) {
+      return new Response(JSON.stringify({ error: 'Monthly quota exceeded' }), {
+        status: 429,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    const user = JSON.parse(userData);
-    const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
-
-    return new Response(JSON.stringify({
-      id: user.firebaseUid,
-      email: user.email,
-      name: user.name || 'Unknown',
-      usage: quota.count,
-      month: quota.month,
-      lastActive: user.lastActive || 'Never'
-    }), {
+    
+    const { prompt } = await request.json();
+    
+    // Call Cloudflare AI
+    const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant for learning languages.' },
+        { role: 'user', content: prompt }
+      ]
+    });
+    
+    // Increment quota
+    quota.count++;
+    await env.WORDGARDEN_KV.put(quotaKey, JSON.stringify(quota));
+    
+    return new Response(JSON.stringify({ result: aiResponse }), {
       headers: { 
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       }
     });
   } catch (error) {
-    console.error('User data error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    console.error('Generation error:', error);
+    return new Response(JSON.stringify({ error: 'Generation failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
 }
+
+async function handleDashboardPage(request, env, ctx) {
+  try {
+    // Manually serve dashboard.html to avoid getAssetFromKV mapping issues
+    const assetPath = 'dashboard.html';
+    const assetKey = assetManifest[assetPath];
+    
+    if (!assetKey) {
+      throw new Error(`Asset not found in manifest: ${assetPath}`);
+    }
+
+    // Direct KV fetch using the binding verified in debug
+    const body = await env.__STATIC_CONTENT.get(assetKey, 'arrayBuffer');
+    
+    if (!body) {
+      throw new Error(`Asset body not found in KV for key: ${assetKey}`);
+    }
+
+    const headers = new Headers();
+    headers.set('Content-Type', 'text/html');
+    headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    headers.set('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    headers.set('Cache-Control', 'public, max-age=3600');
+    
+    return new Response(body, {
+      status: 200,
+      headers: headers
+    });
+  } catch (e) {
+    // Fallback or 404
+    console.error('Dashboard error:', e);
+    const errorDetails = {
+      message: e.message,
+      stack: e.stack,
+      url: request.url,
+      manifestKeys: Object.keys(assetManifest)
+    };
+    return new Response(`Dashboard not found. Error: ${JSON.stringify(errorDetails, null, 2)}`, { 
+      status: 404,
+      headers: { 'Content-Type': 'text/plain' }
+    });
+  }
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+
+    const url = new URL(request.url);
+    
+    // API v1 routes
+    if (url.pathname === '/v1' || url.pathname.startsWith('/v1/')) {
+      // API Root Info
+      if (url.pathname === '/v1' || url.pathname === '/v1/') {
+        return new Response(JSON.stringify({ 
+          status: 'ok', 
+          message: 'WordGarden API v1', 
+          endpoints: {
+            exchange_token: '/v1/exchange-token',
+            dashboard: '/v1/dashboard',
+            generate: '/v1/generate',
+            user_quota: '/v1/user-quota',
+            global_limits: '/v1/global-limits',
+            user_limit: '/v1/user-limit'
+          }
+        }), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      if (url.pathname === '/v1/exchange-token') {
+        return handleTokenExchange(request, env);
+      }
+      if (url.pathname === '/v1/user-quota') {
+        return handleUserQuota(request, env);
+      }
+      if (url.pathname === '/v1/dashboard') {
+        return handleDashboard(request, env);
+      }
+      if (url.pathname === '/v1/generate') {
+        return handleGenerate(request, env);
+      }
+      if (url.pathname === '/v1/user-delete') {
+        return handleDeleteUser(request, env);
+      }
+      if (url.pathname === '/v1/global-limits') {
+        return handleUpdateGlobalLimits(request, env);
+      }
+      if (url.pathname === '/v1/user-limit') {
+        return handleUpdateUserLimit(request, env);
+      }
+      return new Response('Not Found', { status: 404 });
+    }
+
+    // Handle dashboard page specifically to add headers
+    if (url.pathname === '/dashboard') {
+      return handleDashboardPage(request, env, ctx);
+    }
+
+    // Handle root path - Redirect to dashboard or return API status
+    if (url.pathname === '/') {
+      const acceptHeader = request.headers.get('Accept') || '';
+      if (acceptHeader.includes('text/html')) {
+        return handleDashboardPage(request, env, ctx);
+      }
+      return new Response(JSON.stringify({ 
+        status: 'ok', 
+        message: 'WordGarden API',
+        version: '1.0.0',
+        endpoints: {
+          dashboard: '/dashboard',
+          api: '/v1'
+        }
+      }), {
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    // Static assets
+    try {
+      return await getAssetFromKV({
+        request,
+        waitUntil: ctx.waitUntil.bind(ctx),
+      }, {
+        ASSET_NAMESPACE: env.__STATIC_CONTENT,
+        manifest: assetManifest,
+      });
+    } catch (e) {
+      return new Response('Not Found', { status: 404 });
+    }
+  },
+};

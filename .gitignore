@@ -7,3 +7,4 @@ dist/
 .DS_Store
 wrangler.toml.bak
 package-lock.json
+.dev.vars

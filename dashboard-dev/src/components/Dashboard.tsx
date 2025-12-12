@@ -1,27 +1,77 @@
 import { useEffect, useState } from "react";
 import { auth } from "../firebase";
-import { fetchDashboardData, type DashboardData } from "../api";
+import { fetchDashboardData, type DashboardData, deleteUser, updateGlobalLimits, updateUserLimit, type UserData } from "../api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { LogOut, Plus, RefreshCw, Users, Activity } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { LogOut, Plus, RefreshCw, Users, Activity, Trash2, Edit, Search } from "lucide-react";
 
 export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  
+  // Edit User State
+  const [editingUser, setEditingUser] = useState<UserData | null>(null);
+  const [editMonthly, setEditMonthly] = useState(0);
+  const [editDaily, setEditDaily] = useState(0);
+  
+  // Global Limits State
+  const [globalMonthly, setGlobalMonthly] = useState(0);
+  const [globalDaily, setGlobalDaily] = useState(0);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const dashboardData = await fetchDashboardData();
       setData(dashboardData);
+      setGlobalMonthly(dashboardData.systemLimits.monthly);
+      setGlobalDaily(dashboardData.systemLimits.daily);
     } catch (error) {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (email: string) => {
+    if (!confirm(`Are you sure you want to delete user ${email}?`)) return;
+    try {
+      await deleteUser(email);
+      await loadData();
+    } catch (error) {
+      alert("Failed to delete user");
+    }
+  };
+
+  const handleUpdateGlobal = async () => {
+    try {
+      await updateGlobalLimits(globalMonthly, globalDaily);
+      alert("Global limits updated successfully");
+      await loadData();
+    } catch (error) {
+      alert("Failed to update global limits");
+    }
+  };
+
+  const openEditUser = (user: UserData) => {
+    setEditingUser(user);
+    setEditMonthly(user.monthlyLimit);
+    setEditDaily(user.dailyLimit);
+  };
+
+  const handleSaveUserLimit = async () => {
+    if (!editingUser) return;
+    try {
+      await updateUserLimit(editingUser.email, editMonthly, editDaily);
+      setEditingUser(null);
+      await loadData();
+    } catch (error) {
+      alert("Failed to update user limits");
     }
   };
 
@@ -40,6 +90,10 @@ export function Dashboard() {
   if (!data) {
     return <div className="flex items-center justify-center min-h-screen">Error loading data</div>;
   }
+
+  const filteredUsers = data.userList.filter(user => 
+    user.email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-gray-50/50 p-8">
@@ -80,9 +134,20 @@ export function Dashboard() {
                   <CardTitle>Users</CardTitle>
                   <CardDescription>Manage user access and limits</CardDescription>
                 </div>
-                <Button size="sm">
-                  <Plus className="mr-2 h-4 w-4" /> Add User
-                </Button>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="Search users..." 
+                      className="pl-8 w-[250px]" 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <Button size="sm">
+                    <Plus className="mr-2 h-4 w-4" /> Add User
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="rounded-md border">
@@ -97,14 +162,21 @@ export function Dashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.userList.map((user) => (
+                      {filteredUsers.map((user) => (
                         <TableRow key={user.email}>
                           <TableCell className="font-medium">{user.email}</TableCell>
                           <TableCell>{user.monthlyUsage} / {user.monthlyLimit}</TableCell>
                           <TableCell>{user.dailyUsage} / {user.dailyLimit}</TableCell>
                           <TableCell>{user.monthlyLimit} / {user.dailyLimit}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="sm">Edit</Button>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => openEditUser(user)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDeleteUser(user.email)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -125,19 +197,65 @@ export function Dashboard() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="globalMonthly">Global Monthly Limit</Label>
-                    <Input id="globalMonthly" type="number" defaultValue={data.systemLimits.monthly} />
+                    <Input 
+                      id="globalMonthly" 
+                      type="number" 
+                      value={globalMonthly} 
+                      onChange={(e) => setGlobalMonthly(Number(e.target.value))} 
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="globalDaily">Global Daily Limit</Label>
-                    <Input id="globalDaily" type="number" defaultValue={data.systemLimits.daily} />
+                    <Input 
+                      id="globalDaily" 
+                      type="number" 
+                      value={globalDaily} 
+                      onChange={(e) => setGlobalDaily(Number(e.target.value))} 
+                    />
                   </div>
                 </div>
-                <Button>Update Limits</Button>
+                <Button onClick={handleUpdateGlobal}>Update Limits</Button>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User Limits</DialogTitle>
+            <DialogDescription>
+              Set specific limits for {editingUser?.email}. These override global limits.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="editMonthly" className="text-right">Monthly</Label>
+              <Input 
+                id="editMonthly" 
+                type="number" 
+                value={editMonthly} 
+                onChange={(e) => setEditMonthly(Number(e.target.value))}
+                className="col-span-3" 
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="editDaily" className="text-right">Daily</Label>
+              <Input 
+                id="editDaily" 
+                type="number" 
+                value={editDaily} 
+                onChange={(e) => setEditDaily(Number(e.target.value))}
+                className="col-span-3" 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSaveUserLimit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
