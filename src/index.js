@@ -35,11 +35,20 @@ function initializeFirebaseAdmin(env) {
 
 async function handleSyncUsers(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -49,7 +58,7 @@ async function handleSyncUsers(request, env) {
     if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -58,7 +67,7 @@ async function handleSyncUsers(request, env) {
     if (!adminUsers.includes(payload.email)) {
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
         status: 403,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -68,7 +77,7 @@ async function handleSyncUsers(request, env) {
         error: 'Firebase Admin credentials not configured. Please set FIREBASE_PRIVATE_KEY_ID and FIREBASE_PRIVATE_KEY in your environment variables.' 
       }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -326,6 +335,9 @@ async function getUserLimits(uid, env) {
 
 async function handleUpdateGlobalLimits(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
@@ -357,6 +369,9 @@ async function handleUpdateGlobalLimits(request, env) {
 
 async function handleUpdateUserLimit(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
@@ -415,11 +430,19 @@ async function handleUpdateUserLimit(request, env) {
 
 async function handleUserQuota(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
     
@@ -428,7 +451,7 @@ async function handleUserQuota(request, env) {
     if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
     
@@ -486,11 +509,19 @@ async function handleUserQuota(request, env) {
 
 async function handleTokenExchange(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Missing authorization' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -503,7 +534,7 @@ async function handleTokenExchange(request, env) {
     if (!isValid) {
       return new Response(JSON.stringify({ error: 'Invalid Firebase token' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -534,18 +565,29 @@ async function handleTokenExchange(request, env) {
     console.error('Token exchange error:', error);
     return new Response(JSON.stringify({ error: 'Token exchange failed' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
   }
 }
 
 async function handleDashboard(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -555,7 +597,7 @@ async function handleDashboard(request, env) {
     if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -564,7 +606,7 @@ async function handleDashboard(request, env) {
     if (!['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(userEmail)) {
       return new Response(JSON.stringify({ error: 'Access denied' }), {
         status: 403,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
@@ -640,27 +682,38 @@ async function handleDashboard(request, env) {
     console.error('Dashboard error:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
   }
 }
 
 async function handleDeleteUser(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401, headers: corsHeaders });
     }
 
     const token = authHeader.substring(7);
     const payload = await verifyToken(token, env);
     
     if (!payload || !['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(payload.email)) {
-      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403, headers: corsHeaders });
     }
 
     const { email } = await request.json();
-    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400 });
+    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400, headers: corsHeaders });
 
     // Find user key by email (inefficient but works for small scale)
     // Better: maintain email->uid mapping
@@ -682,32 +735,46 @@ async function handleDeleteUser(request, env) {
       await env.WORDGARDEN_KV.delete(`user:${targetUid}`);
       await env.WORDGARDEN_KV.delete(`quota:${targetUid}`);
       return new Response(JSON.stringify({ success: true }), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        headers: corsHeaders
       });
     }
 
-    return new Response(JSON.stringify({ error: 'User not found' }), { status: 404 });
+    return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: corsHeaders });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+      }
+    });
   }
 }
 
 async function handleAddUser(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+    
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401, headers: corsHeaders });
     }
 
     const token = authHeader.substring(7);
     const payload = await verifyToken(token, env);
     
     if (!payload || !['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(payload.email)) {
-      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403, headers: corsHeaders });
     }
 
     const { email, name, monthly, daily } = await request.json();
-    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400 });
+    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400, headers: corsHeaders });
 
     // Check if user already exists
     const userKeys = await env.WORDGARDEN_KV.list({ prefix: 'user:' });
@@ -716,7 +783,7 @@ async function handleAddUser(request, env) {
       if (userData) {
         const user = JSON.parse(userData);
         if (user.email === email) {
-          return new Response(JSON.stringify({ error: 'User already exists' }), { status: 409 });
+          return new Response(JSON.stringify({ error: 'User already exists' }), { status: 409, headers: corsHeaders });
         }
       }
     }
@@ -753,17 +820,32 @@ async function handleAddUser(request, env) {
     });
   } catch (error) {
     console.error('Add user error:', error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+      }
+    });
   }
 }
 
 async function handleGenerate(request, env) {
   try {
+    if (request.method === 'OPTIONS') {
+      return handleOptions(request);
+    }
+    
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Content-Type': 'application/json'
+    };
+
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Authentication required' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
     
@@ -772,7 +854,7 @@ async function handleGenerate(request, env) {
     if (!payload) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
     
@@ -818,14 +900,14 @@ async function handleGenerate(request, env) {
     if (quota.count >= monthlyLimit) {
       return new Response(JSON.stringify({ error: 'Monthly quota exceeded' }), {
         status: 429,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
 
     if (quota.dailyCount >= dailyLimit) {
       return new Response(JSON.stringify({ error: 'Daily quota exceeded' }), {
         status: 429,
-        headers: { 'Content-Type': 'application/json' }
+        headers: corsHeaders
       });
     }
     
@@ -861,7 +943,10 @@ async function handleGenerate(request, env) {
     console.error('Generation error:', error);
     return new Response(JSON.stringify({ error: 'Generation failed' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
   }
 }
