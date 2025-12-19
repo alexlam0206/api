@@ -68,6 +68,7 @@ export interface DashboardData {
     monthly: number;
     daily: number;
   };
+  dailyStats?: { date: string; count: number }[];
 }
 
 export async function updateUserLimit(email: string, monthly: number, daily: number) {
@@ -147,7 +148,8 @@ export async function fetchDashboardData(): Promise<DashboardData> {
       totalRequests,
       avgTokens: 0,
       userList,
-      systemLimits: data.systemLimits || { monthly: 50, daily: 10 }
+      systemLimits: data.systemLimits || { monthly: 50, daily: 10 },
+      dailyStats: data.dailyStats
     };
   } catch (e) {
     console.warn("API fetch failed, using mock data", e);
@@ -164,7 +166,15 @@ export async function fetchDashboardData(): Promise<DashboardData> {
       systemLimits: {
         monthly: 50,
         daily: 10
-      }
+      },
+      dailyStats: Array.from({ length: 30 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (29 - i));
+        return {
+          date: d.toISOString().split('T')[0],
+          count: Math.floor(Math.random() * 50) + 10
+        };
+      })
     };
   }
 }
