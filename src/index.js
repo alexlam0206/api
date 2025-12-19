@@ -22,6 +22,11 @@ function getCurrentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getCurrentDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 async function verifyToken(token, env) {
   try {
     const secret = new TextEncoder().encode(env.JWT_SECRET || 'your-secret-key-change-me');
@@ -71,7 +76,7 @@ async function handleUpdateGlobalLimits(request, env) {
     const token = authHeader.substring(7);
     const payload = await verifyToken(token, env);
     
-    if (!payload || payload.email !== 'nok@pgmiv.com') {
+    if (!payload || !['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(payload.email)) {
       return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
     }
 
@@ -102,7 +107,7 @@ async function handleUpdateUserLimit(request, env) {
     const token = authHeader.substring(7);
     const payload = await verifyToken(token, env);
     
-    if (!payload || payload.email !== 'nok@pgmiv.com') {
+    if (!payload || !['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(payload.email)) {
       return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
     }
 
@@ -170,21 +175,41 @@ async function handleUserQuota(request, env) {
     }
     
     const userId = payload.uid;
+    const userKey = `user:${userId}`;
+    const existingUserData = await env.WORDGARDEN_KV.get(userKey);
+    const nowIso = new Date().toISOString();
+    if (!existingUserData) {
+      const newUser = {
+        firebaseUid: userId,
+        email: payload.email,
+        name: (payload.email || '').split('@')[0],
+        lastActive: nowIso
+      };
+      await env.WORDGARDEN_KV.put(userKey, JSON.stringify(newUser));
+    } else {
+      const user = JSON.parse(existingUserData);
+      user.lastActive = nowIso;
+      await env.WORDGARDEN_KV.put(userKey, JSON.stringify(user));
+    }
     
     // Get user quota from KV
     const quotaKey = `quota:${userId}`;
     const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
-    const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
+    const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth(), dailyCount: 0, date: getCurrentDate() };
     
     // Determine limits
     const userLimits = await getUserLimits(userId, env);
     const systemLimits = await getSystemLimits(env);
     const monthlyLimit = userLimits?.monthly ?? systemLimits.monthly;
+    const dailyLimit = userLimits?.daily ?? systemLimits.daily;
 
     return new Response(JSON.stringify({
       usage: quota.count,
       month: quota.month,
-      limit: monthlyLimit
+      dailyUsage: quota.dailyCount || 0,
+      date: quota.date || getCurrentDate(),
+      limit: monthlyLimit,
+      dailyLimit: dailyLimit
     }), {
       headers: { 
         'Content-Type': 'application/json',
@@ -278,7 +303,7 @@ async function handleDashboard(request, env) {
 
     // Check email claim directly for admin access
     const userEmail = payload.email;
-    if (userEmail !== 'nok@pgmiv.com') {
+    if (!['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(userEmail)) {
       return new Response(JSON.stringify({ error: 'Access denied' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
@@ -296,8 +321,18 @@ async function handleDashboard(request, env) {
         const user = JSON.parse(userData);
         const quotaKey = `quota:${user.firebaseUid}`;
         const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
-        const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
+        const quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth(), dailyCount: 0, date: getCurrentDate() };
         
+        // Reset daily/monthly if needed for display accuracy
+        if (quota.month !== getCurrentMonth()) {
+          quota.count = 0;
+          quota.month = getCurrentMonth();
+        }
+        if (quota.date !== getCurrentDate()) {
+          quota.dailyCount = 0;
+          quota.date = getCurrentDate();
+        }
+
         // Get specific limits
         const userLimit = await getUserLimits(user.firebaseUid, env);
         const monthlyLimit = userLimit?.monthly ?? systemLimits.monthly;
@@ -309,7 +344,7 @@ async function handleDashboard(request, env) {
           name: user.name || 'Unknown',
           usage: quota.count, // Legacy support
           monthlyUsage: quota.count,
-          dailyUsage: 0, // TODO: Implement daily tracking
+          dailyUsage: quota.dailyCount || 0,
           month: quota.month,
           monthlyLimit,
           dailyLimit,
@@ -347,7 +382,7 @@ async function handleDeleteUser(request, env) {
     const token = authHeader.substring(7);
     const payload = await verifyToken(token, env);
     
-    if (!payload || payload.email !== 'nok@pgmiv.com') {
+    if (!payload || !['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(payload.email)) {
       return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
     }
 
@@ -384,6 +419,71 @@ async function handleDeleteUser(request, env) {
   }
 }
 
+async function handleAddUser(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token, env);
+    
+    if (!payload || !['nok@pgmiv.com', 'milochan1313@gmail.com'].includes(payload.email)) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const { email, name, monthly, daily } = await request.json();
+    if (!email) return new Response(JSON.stringify({ error: 'Email required' }), { status: 400 });
+
+    // Check if user already exists
+    const userKeys = await env.WORDGARDEN_KV.list({ prefix: 'user:' });
+    for (const key of userKeys.keys) {
+      const userData = await env.WORDGARDEN_KV.get(key.name);
+      if (userData) {
+        const user = JSON.parse(userData);
+        if (user.email === email) {
+          return new Response(JSON.stringify({ error: 'User already exists' }), { status: 409 });
+        }
+      }
+    }
+
+    // Generate a fake Firebase UID for this manually added user
+    const firebaseUid = crypto.randomUUID();
+
+    // Create user data
+    const userKey = `user:${firebaseUid}`;
+    const userData = {
+      firebaseUid,
+      email,
+      name: name || email.split('@')[0],
+      lastActive: 'Never',
+      manuallyAdded: true
+    };
+    await env.WORDGARDEN_KV.put(userKey, JSON.stringify(userData));
+
+    // Set limits if provided
+    if (monthly !== undefined || daily !== undefined) {
+      const limits = {
+        monthly: monthly !== undefined ? monthly : 50,
+        daily: daily !== undefined ? daily : 10
+      };
+      await env.WORDGARDEN_KV.put(`limit:${firebaseUid}`, JSON.stringify(limits));
+    }
+
+    return new Response(JSON.stringify({ success: true, user: userData }), {
+      headers: { 
+        'Content-Type': 'application/json', 
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
+      }
+    });
+  } catch (error) {
+    console.error('Add user error:', error);
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
+
 async function handleGenerate(request, env) {
   try {
     const authHeader = request.headers.get('Authorization');
@@ -404,23 +504,53 @@ async function handleGenerate(request, env) {
     }
     
     const userId = payload.uid;
+    const userKey = `user:${userId}`;
+    const existingUserData = await env.WORDGARDEN_KV.get(userKey);
+    const nowIso = new Date().toISOString();
+    if (!existingUserData) {
+      const newUser = {
+        firebaseUid: userId,
+        email: payload.email,
+        name: (payload.email || '').split('@')[0],
+        lastActive: nowIso
+      };
+      await env.WORDGARDEN_KV.put(userKey, JSON.stringify(newUser));
+    } else {
+      const user = JSON.parse(existingUserData);
+      user.lastActive = nowIso;
+      await env.WORDGARDEN_KV.put(userKey, JSON.stringify(user));
+    }
     
     // Check quota
     const quotaKey = `quota:${userId}`;
     const quotaData = await env.WORDGARDEN_KV.get(quotaKey);
-    let quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth() };
+    let quota = quotaData ? JSON.parse(quotaData) : { count: 0, month: getCurrentMonth(), dailyCount: 0, date: getCurrentDate() };
     
     if (quota.month !== getCurrentMonth()) {
-      quota = { count: 0, month: getCurrentMonth() };
+      quota.count = 0;
+      quota.month = getCurrentMonth();
+    }
+    
+    if (quota.date !== getCurrentDate()) {
+      quota.dailyCount = 0;
+      quota.date = getCurrentDate();
     }
     
     // Determine limits
     const userLimits = await getUserLimits(userId, env);
     const systemLimits = await getSystemLimits(env);
     const monthlyLimit = userLimits?.monthly ?? systemLimits.monthly;
+    const dailyLimit = userLimits?.daily ?? systemLimits.daily;
     
     if (quota.count >= monthlyLimit) {
       return new Response(JSON.stringify({ error: 'Monthly quota exceeded' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (quota.dailyCount >= dailyLimit) {
+      return new Response(JSON.stringify({ error: 'Daily quota exceeded' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -438,6 +568,7 @@ async function handleGenerate(request, env) {
     
     // Increment quota
     quota.count++;
+    quota.dailyCount = (quota.dailyCount || 0) + 1;
     await env.WORDGARDEN_KV.put(quotaKey, JSON.stringify(quota));
     
     return new Response(JSON.stringify({ result: aiResponse }), {
@@ -541,6 +672,9 @@ export default {
       if (url.pathname === '/v1/user-delete') {
         return handleDeleteUser(request, env);
       }
+      if (url.pathname === '/v1/user-add') {
+        return handleAddUser(request, env);
+      }
       if (url.pathname === '/v1/global-limits') {
         return handleUpdateGlobalLimits(request, env);
       }
@@ -575,6 +709,25 @@ export default {
           'Access-Control-Allow-Origin': '*'
         }
       });
+    }
+
+    if (url.pathname === '/public/favicon.ico') {
+      try {
+        const assetPath = 'favicon.ico';
+        const assetKey = assetManifest[assetPath];
+        const body = await env.__STATIC_CONTENT.get(assetKey, 'arrayBuffer');
+        if (!body) {
+          return new Response('Not Found', { status: 404 });
+        }
+        return new Response(body, {
+          headers: {
+            'Content-Type': 'image/x-icon',
+            'Cache-Control': 'public, max-age=86400'
+          }
+        });
+      } catch (_) {
+        return new Response('Not Found', { status: 404 });
+      }
     }
 
     // Static assets

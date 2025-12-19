@@ -6,6 +6,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
 import { AlertCircle } from "lucide-react";
 
+const ADMIN_EMAILS = ["nok@pgmiv.com", "milochan1313@gmail.com"];
+
 export function Login() {
   const [error, setError] = useState<string | null>(null);
 
@@ -14,9 +16,9 @@ export function Login() {
       setError(null);
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
-      if (user.email !== "nok@pgmiv.com") {
+      if (!user.email || !ADMIN_EMAILS.includes(user.email)) {
         await auth.signOut();
-        setError("Access denied. Only nok@pgmiv.com is authorized.");
+        setError("Access denied. Only authorized admin accounts can sign in.");
       }
     } catch (err: any) {
       console.error(err);

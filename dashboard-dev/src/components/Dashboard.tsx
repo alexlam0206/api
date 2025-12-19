@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { auth } from "../firebase";
-import { fetchDashboardData, type DashboardData, deleteUser, updateGlobalLimits, updateUserLimit, type UserData } from "../api";
+import { fetchDashboardData, type DashboardData, deleteUser, updateGlobalLimits, updateUserLimit, addUser, type UserData } from "../api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LogOut, Plus, RefreshCw, Users, Activity, Trash2, Edit, Search } from "lucide-react";
 
 export function Dashboard() {
@@ -24,6 +25,15 @@ export function Dashboard() {
   const [globalMonthly, setGlobalMonthly] = useState(0);
   const [globalDaily, setGlobalDaily] = useState(0);
 
+  // Add User State
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserMonthly, setNewUserMonthly] = useState(50);
+  const [newUserDaily, setNewUserDaily] = useState(10);
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [addUserError, setAddUserError] = useState<string | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -31,10 +41,38 @@ export function Dashboard() {
       setData(dashboardData);
       setGlobalMonthly(dashboardData.systemLimits.monthly);
       setGlobalDaily(dashboardData.systemLimits.daily);
+      
+      // Set defaults for new user based on global limits
+      setNewUserMonthly(dashboardData.systemLimits.monthly);
+      setNewUserDaily(dashboardData.systemLimits.daily);
     } catch (error) {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddUser = async () => {
+    if (!newUserEmail) {
+      setAddUserError("Please enter an email");
+      return;
+    }
+    if (!newUserName) {
+      setNewUserName(newUserEmail.split('@')[0]);
+    }
+    setAddUserError(null);
+    setIsAddingUser(true);
+    try {
+      await addUser(newUserEmail, newUserMonthly, newUserDaily, newUserName || undefined);
+      setIsAddUserOpen(false);
+      setNewUserEmail("");
+      setNewUserName("");
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to add user";
+      setAddUserError(message);
+    } finally {
+      setIsAddingUser(false);
     }
   };
 
@@ -92,18 +130,20 @@ export function Dashboard() {
   }
 
   const filteredUsers = data.userList.filter(user => 
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
+    (user.email?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+     user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+     user.id?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
-    <div className="min-h-screen bg-gray-50/50 p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex justify-between items-center">
+    <div className="min-h-screen bg-gray-50/50 px-4 py-6 sm:p-8">
+      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">AI Usage Dashboard</h1>
             <p className="text-muted-foreground">Manage user limits and monitor AI generation usage</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 sm:justify-end">
             <Button variant="outline" size="icon" onClick={loadData}>
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -139,22 +179,24 @@ export function Dashboard() {
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input 
                       placeholder="Search users..." 
-                      className="pl-8 w-[250px]" 
+                      className="pl-8 w-full sm:w-[250px]" 
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => setIsAddUserOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" /> Add User
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="rounded-md border">
+                <div className="rounded-md border overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>ID</TableHead>
                         <TableHead>Email</TableHead>
+                        <TableHead>Name</TableHead>
                         <TableHead>Monthly Usage</TableHead>
                         <TableHead>Daily Usage</TableHead>
                         <TableHead>Limits (M/D)</TableHead>
@@ -164,7 +206,9 @@ export function Dashboard() {
                     <TableBody>
                       {filteredUsers.map((user) => (
                         <TableRow key={user.email}>
+                          <TableCell className="font-mono text-xs">{user.id}</TableCell>
                           <TableCell className="font-medium">{user.email}</TableCell>
+                          <TableCell>{user.name || "-"}</TableCell>
                           <TableCell>{user.monthlyUsage} / {user.monthlyLimit}</TableCell>
                           <TableCell>{user.dailyUsage} / {user.dailyLimit}</TableCell>
                           <TableCell>{user.monthlyLimit} / {user.dailyLimit}</TableCell>
@@ -253,6 +297,71 @@ export function Dashboard() {
           </div>
           <DialogFooter>
             <Button onClick={handleSaveUserLimit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New User</DialogTitle>
+            <DialogDescription>
+              Create a new user manually. They will be able to access the API immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {addUserError && (
+              <Alert variant="destructive">
+                <AlertDescription>{addUserError}</AlertDescription>
+              </Alert>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+              <Label htmlFor="newEmail" className="sm:text-right">Email</Label>
+              <Input 
+                id="newEmail" 
+                type="email" 
+                placeholder="user@example.com"
+                value={newUserEmail} 
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                className="sm:col-span-3" 
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+              <Label htmlFor="newName" className="sm:text-right">Name</Label>
+              <Input 
+                id="newName" 
+                type="text" 
+                placeholder="User Name"
+                value={newUserName} 
+                onChange={(e) => setNewUserName(e.target.value)}
+                className="sm:col-span-3" 
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+              <Label htmlFor="newMonthly" className="sm:text-right">Monthly</Label>
+              <Input 
+                id="newMonthly" 
+                type="number" 
+                value={newUserMonthly} 
+                onChange={(e) => setNewUserMonthly(Number(e.target.value))}
+                className="sm:col-span-3" 
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 items-center gap-4">
+              <Label htmlFor="newDaily" className="sm:text-right">Daily</Label>
+              <Input 
+                id="newDaily" 
+                type="number" 
+                value={newUserDaily} 
+                onChange={(e) => setNewUserDaily(Number(e.target.value))}
+                className="sm:col-span-3" 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleAddUser} disabled={isAddingUser}>
+              {isAddingUser ? "Creating..." : "Create User"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

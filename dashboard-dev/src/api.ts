@@ -38,7 +38,9 @@ async function getAuthHeaders() {
   if (!cloudflareToken && auth.currentUser) {
     await exchangeToken(auth.currentUser);
   }
-  
+  if (!cloudflareToken) {
+    throw new Error("Authentication required");
+  }
   return {
     Authorization: `Bearer ${cloudflareToken}`,
     "Content-Type": "application/json",
@@ -46,7 +48,9 @@ async function getAuthHeaders() {
 }
 
 export interface UserData {
+  id?: string;
   email: string;
+  name?: string;
   monthlyUsage: number;
   dailyUsage: number;
   monthlyLimit: number;
@@ -99,6 +103,20 @@ export async function deleteUser(email: string) {
   return res.json();
 }
 
+export async function addUser(email: string, monthly: number, daily: number, name?: string) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/user-add`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ email, monthly, daily, name })
+  });
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || "Failed to add user");
+  }
+  return res.json();
+}
+
 export async function fetchDashboardData(): Promise<DashboardData> {
   try {
     const headers = await getAuthHeaders();
@@ -106,15 +124,14 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     if (!res.ok) throw new Error("Failed to fetch");
     
     const data = await res.json();
-    // data.users is array of { id, email, name, usage, month, lastActive }
-    
-    // Transform to DashboardData
     const userList: UserData[] = data.users.map((u: any) => ({
+      id: u.id,
       email: u.email,
-      monthlyUsage: u.usage,
-      dailyUsage: u.dailyUsage || 0,
-      monthlyLimit: u.monthlyLimit || 50,
-      dailyLimit: u.dailyLimit || 10,
+      name: u.name,
+      monthlyUsage: u.monthlyUsage ?? u.usage,
+      dailyUsage: u.dailyUsage ?? 0,
+      monthlyLimit: u.monthlyLimit ?? 50,
+      dailyLimit: u.dailyLimit ?? 10,
       lastActive: u.lastActive
     }));
 
