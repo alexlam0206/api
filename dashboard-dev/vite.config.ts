@@ -17,20 +17,7 @@ export default defineConfig({
     },
   },
   build: {
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.warn'],
-      },
-      mangle: {
-        toplevel: true,
-      },
-      format: {
-        comments: false,
-      },
-    },
-    sourcemap: false,
+    minify: false, // Disable minification to make debugging easier
+    sourcemap: true, // Enable sourcemaps for debugging
   },
 })

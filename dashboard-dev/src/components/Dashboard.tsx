@@ -93,15 +93,17 @@ export function Dashboard() {
   };
 
   const handleAddUser = async () => {
-    console.log('Add User clicked');
+    console.log('[Dashboard] Add User button clicked');
     
     // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!newUserEmail) {
+      console.log('[Dashboard] Validation failed: No email');
       setAddUserError("Please enter an email");
       return;
     }
     if (!emailRegex.test(newUserEmail)) {
+      console.log('[Dashboard] Validation failed: Invalid email format');
       setAddUserError("Please enter a valid email address");
       return;
     }
@@ -115,15 +117,15 @@ export function Dashboard() {
     setIsAddingUser(true);
     
     try {
-      console.log('Calling addUser with:', { 
+      console.log('[Dashboard] Calling addUser API with:', { 
         email: newUserEmail, 
         monthly: newUserMonthly, 
         daily: newUserDaily, 
         name: newUserName || newUserEmail.split('@')[0]
       });
       
-      await addUser(newUserEmail, newUserMonthly, newUserDaily, newUserName || newUserEmail.split('@')[0]);
-      console.log('User added successfully');
+      const result = await addUser(newUserEmail, newUserMonthly, newUserDaily, newUserName || newUserEmail.split('@')[0]);
+      console.log('[Dashboard] User added successfully:', result);
       
       // Reset form and close dialog
       setIsAddUserOpen(false);
@@ -135,7 +137,7 @@ export function Dashboard() {
       // Refresh data
       await loadData();
     } catch (error) {
-      console.error('Add user error:', error);
+      console.error('[Dashboard] Add user error:', error);
       const message = error instanceof Error ? error.message : "Failed to add user";
       setAddUserError(message);
     } finally {

@@ -667,10 +667,18 @@ async function handleDashboard(request, env) {
       });
     }
 
+    // Get average tokens
+    const totalTokensKey = 'stats:total_tokens';
+    const totalRequestsKey = 'stats:total_requests';
+    const totalTokens = parseInt(await env.WORDGARDEN_KV.get(totalTokensKey) || '0');
+    const totalRequests = parseInt(await env.WORDGARDEN_KV.get(totalRequestsKey) || '0');
+    const avgTokens = totalRequests > 0 ? Math.round(totalTokens / totalRequests) : 0;
+
     return new Response(JSON.stringify({ 
       users,
       systemLimits,
-      dailyStats
+      dailyStats,
+      avgTokens
     }), {
       headers: { 
         'Content-Type': 'application/json',
@@ -926,6 +934,22 @@ async function handleGenerate(request, env) {
     quota.dailyCount = (quota.dailyCount || 0) + 1;
     await env.WORDGARDEN_KV.put(quotaKey, JSON.stringify(quota));
 
+    // Calculate approximate tokens (very rough estimate: 4 chars per token)
+    // Llama-3 response is in aiResponse.response
+    const promptTokens = prompt.length / 4;
+    const responseTokens = (aiResponse.response || '').length / 4;
+    const totalTokens = Math.ceil(promptTokens + responseTokens);
+
+    // Update global token stats
+    const totalTokensKey = 'stats:total_tokens';
+    const totalRequestsKey = 'stats:total_requests';
+    
+    const currentTotalTokens = parseInt(await env.WORDGARDEN_KV.get(totalTokensKey) || '0');
+    const currentTotalRequests = parseInt(await env.WORDGARDEN_KV.get(totalRequestsKey) || '0');
+    
+    await env.WORDGARDEN_KV.put(totalTokensKey, (currentTotalTokens + totalTokens).toString());
+    await env.WORDGARDEN_KV.put(totalRequestsKey, (currentTotalRequests + 1).toString());
+
     // Increment global daily stats
     const today = getCurrentDate();
     const globalDailyKey = `stats:daily:${today}`;
@@ -972,7 +996,9 @@ async function handleDashboardPage(request, env, ctx) {
     headers.set('Content-Type', 'text/html');
     headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     headers.set('Cross-Origin-Embedder-Policy', 'unsafe-none');
-    headers.set('Cache-Control', 'public, max-age=3600');
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+    headers.set('Expires', '0');
     
     return new Response(body, {
       status: 200,

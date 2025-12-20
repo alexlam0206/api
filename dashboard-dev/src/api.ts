@@ -105,17 +105,37 @@ export async function deleteUser(email: string) {
 }
 
 export async function addUser(email: string, monthly: number, daily: number, name?: string) {
+  console.log('[API] addUser called', { email, monthly, daily, name });
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE}/user-add`, {
+  const url = `${API_BASE}/user-add`;
+  console.log('[API] Fetching:', url);
+  
+  const res = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({ email, monthly, daily, name })
   });
+
+  console.log('[API] Response status:', res.status);
+
   if (!res.ok) {
-    const errorData = await res.json();
-    throw new Error(errorData.error || "Failed to add user");
+    let errorMessage = "Failed to add user";
+    try {
+      const errorData = await res.json();
+      console.log('[API] Error data:', errorData);
+      errorMessage = errorData.error || errorMessage;
+    } catch (e) {
+      console.warn('[API] Failed to parse error response JSON:', e);
+      const text = await res.text();
+      console.log('[API] Raw error response:', text);
+      errorMessage = `Server error (${res.status}): ${text.substring(0, 100)}`;
+    }
+    throw new Error(errorMessage);
   }
-  return res.json();
+  
+  const data = await res.json();
+  console.log('[API] Success response:', data);
+  return data;
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
@@ -146,7 +166,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
       users: userList.length,
       activeToday,
       totalRequests,
-      avgTokens: 0,
+      avgTokens: data.avgTokens || 0,
       userList,
       systemLimits: data.systemLimits || { monthly: 50, daily: 10 },
       dailyStats: data.dailyStats
